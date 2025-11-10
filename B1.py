@@ -13,7 +13,6 @@ for name, ch in [('b', b), ('g', g), ('r', r)]:
     ch_blur = cv2.GaussianBlur(ch, (9, 9), 1.5)
     ch_blur = cv2.medianBlur(ch_blur, 5)
     edges_ch = cv2.Canny(ch_blur, 50, 150)
-
     edges_ch = cv2.morphologyEx(edges_ch, cv2.MORPH_CLOSE, kernel, iterations=2)
     edges_channels[name] = edges_ch
 edges = cv2.bitwise_or(edges_channels['r'], cv2.bitwise_or(edges_channels['g'], edges_channels['b']))
@@ -38,25 +37,18 @@ if circles is not None:
 
     for i, circle in enumerate(circles[0, :]):
         cx, cy, radius = circle
-        
         cv2.circle(img, (cx, cy), radius, (255, 0, 255), 3)
-        
         cv2.circle(img, (cx, cy), 2, (0, 0, 255), 3)
-
         x = cx - radius
         y = cy - radius
-        cv2.rectangle(img, (x, y), (x + radius*2, y + radius*2), (255, 0, 255), 2)
-        
-        cv2.putText(img, f"Circle", (cx - radius, cy - radius - 10), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 255), 2)
         
         detected_circles.append({'center': (cx, cy), 'radius': radius})
-        print(f"  Lingkaran {i+1}: Center=({cx},{cy}), Radius={radius}")
+
 
 contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 contours = [c for c in contours if cv2.contourArea(c) > 500]
 
-
+objects = []
 for cnt in contours:
     peri = cv2.arcLength(cnt, True)
     approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
@@ -68,20 +60,39 @@ for cnt in contours:
     elif len(approx) == 4:
         ratio = w / float(h)
         shape = "Persegi" if 0.95 <= ratio <= 1.05 else "Persegi Panjang"
-    elif len(approx) > 5:
-        area = cv2.contourArea(cnt)
-        circularity = 4 * np.pi * area / (peri * peri) if peri > 0 else 0
+
+    objects.append({'shape': shape, 'bounding_box': (x, y, w, h), "center": (x + w//2, y + h//2)})
+
+for obj in objects:
+    if obj['shape'] == "Persegi Panjang":
+        x, y, w, h = obj['bounding_box']
+        cx, cy = obj['center']
         
-        if circularity > 0.8:
-            shape = "Lingkaran (contour)"
+        has_circle = any(x<c["center"][0]<x+w and y<c["center"][1]<y+h for c in detected_circles)
+
+        box_color = (0, 255, 0)  
+        cv2.rectangle(img, (x, y), (x+w, y+h), box_color, 3)
+        
+        if has_circle:
+            cv2.putText(img, "DROPZONE", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, box_color, 2)
+            cv2.drawMarker(img, (cx, cy), (0, 0, 0), cv2.MARKER_CROSS, 20, 3)
         else:
-            shape = "Polygon"
+            cv2.putText(img, "LANDZONE", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, box_color, 2)
+            cv2.drawMarker(img, (cx, cy), (0, 255, 0), cv2.MARKER_CROSS, 20, 3)
 
-    cv2.drawContours(img, [approx], -1, (0, 255, 0), 2)
-    cv2.putText(img, shape, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+for c in detected_circles:
+    cx, cy = c['center']
+    radius = c['radius']
+    inside_rect = any (x < cx < x + w and y < cy < y + h for obj in objects if obj['shape'] == "Persegi Panjang" for x, y, w, h in [obj['bounding_box']])
+    if not inside_rect:
+        box_color = (0, 255, 0)
+        
+        x = cx - radius
+        y = cy - radius
+        cv2.rectangle(img, (x, y), (x + radius*2, y + radius*2), box_color, 3)
+        cv2.drawMarker(img, (cx, cy), (0, 255, 255), cv2.MARKER_CROSS, 20, 3)        
+        cv2.putText(img, "BUCKET", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, box_color, 2)
 
-cv2.imshow("Edges", edges)
-cv2.imwrite("edges.png", edges)
 cv2.imshow("Detected Shapes + Circles", img)
 cv2.imwrite("detected.png", img)
 cv2.waitKey(0)
